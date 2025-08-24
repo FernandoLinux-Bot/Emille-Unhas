@@ -13,10 +13,12 @@
   "dependencies": {
     "@prisma/client": "^5.14.0",
     "@vercel/blob": "^0.23.2",
+    "formidable": "^3.5.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@types/formidable": "^3.4.5",
     "@types/node": "^20.12.7",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
@@ -29,6 +31,6 @@
     "vite-plugin-pwa": "^0.16.5"
   },
   "prisma": {
-    "seed": "ts-node --compiler-options '{\\\"module\\\":\\\"CommonJS\\\"}' prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts"
   }
 }
