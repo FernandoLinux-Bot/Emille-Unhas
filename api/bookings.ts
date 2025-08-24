@@ -1,7 +1,9 @@
 import { Buffer } from 'node:buffer';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { sql } from '@vercel/postgres';
+import { PrismaClient } from '@prisma/client';
 import { put } from '@vercel/blob';
+
+const prisma = new PrismaClient();
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- Rota GET: Buscar agendamentos existentes para uma data ---
@@ -11,14 +13,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Date parameter is required' });
     }
     try {
-      const { rows } = await sql`
-        SELECT start_time, duration_minutes 
-        FROM Bookings 
-        WHERE booking_date = ${date};
-      `;
-      return res.status(200).json(rows);
+      const bookings = await prisma.booking.findMany({
+        where: { bookingDate: new Date(date) },
+        select: { startTime: true, durationMinutes: true }
+      });
+      // Formata a resposta para manter a compatibilidade com o frontend (snake_case)
+      const formattedBookings = bookings.map(b => ({
+        start_time: b.startTime,
+        duration_minutes: b.durationMinutes
+      }));
+      return res.status(200).json(formattedBookings);
     } catch (error) {
-      console.error('Database Error:', error);
+      console.error('Prisma Error:', error);
       return res.status(500).json({ error: 'Failed to fetch bookings' });
     }
   }
@@ -31,8 +37,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Invalid content type' });
         }
 
-        // Simples parser para multipart/form-data (adequado para este caso)
-        // Bibliotecas como 'formidable' seriam mais robustas para casos complexos
         const boundary = contentType.split('boundary=')[1];
         const parts = (req.body.toString()).split(`--${boundary}`);
         
@@ -46,11 +50,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 bookingData = JSON.parse(jsonPart);
             } else if (part.includes('name="inspirationFile"')) {
                  const content = part.split('\r\n\r\n')[1];
-                 // Extrai o nome do arquivo
                  const filenameMatch = part.match(/filename="([^"]+)"/);
                  filename = filenameMatch ? filenameMatch[1] : 'inspiration.jpg';
-
-                 // Remove a linha final de boundary
                  const trimmedContent = content.substring(0, content.lastIndexOf('\r\n'));
                  fileBuffer = Buffer.from(trimmedContent, 'binary');
             }
@@ -66,7 +67,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         let inspirationUrl = null;
-        // Se um arquivo foi enviado, faz o upload para o Vercel Blob
         if (fileBuffer && filename) {
           const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}-${filename}`;
           const blob = await put(uniqueFilename, fileBuffer, {
@@ -75,11 +75,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           inspirationUrl = blob.url;
         }
         
-        // Insere o agendamento no banco de dados Neon
-        await sql`
-          INSERT INTO Bookings (client_name, client_phone, booking_date, start_time, duration_minutes, services, total_cost, inspiration_url)
-          VALUES (${userInfo.name}, ${userInfo.phone}, ${selectedDate}, ${selectedTime}, ${totalDuration}, ${serviceNames.join(', ')}, ${totalCost}, ${inspirationUrl});
-        `;
+        await prisma.booking.create({
+            data: {
+                clientName: userInfo.name,
+                clientPhone: userInfo.phone,
+                bookingDate: new Date(selectedDate),
+                startTime: selectedTime,
+                durationMinutes: totalDuration,
+                services: serviceNames.join(', '),
+                totalCost: totalCost,
+                inspirationUrl: inspirationUrl,
+            }
+        });
       
         return res.status(201).json({ message: 'Booking created successfully', inspirationUrl });
 
@@ -89,7 +96,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
   }
 
-  // Se o método não for GET ou POST
   res.setHeader('Allow', ['GET', 'POST']);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
 }
