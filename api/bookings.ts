@@ -1,9 +1,28 @@
-import { Buffer } from 'node:buffer';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
 import { put } from '@vercel/blob';
+import formidable from 'formidable';
+import fs from 'fs/promises';
+
+// Desabilita o body parser padrão da Vercel para permitir que o formidable processe o stream.
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
 const prisma = new PrismaClient();
+
+// Função auxiliar para parsear o formulário com formidable
+const parseForm = (req: VercelRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> => {
+  return new Promise((resolve, reject) => {
+    const form = formidable({});
+    form.parse(req, (err, fields, files) => {
+      if (err) return reject(err);
+      resolve({ fields, files });
+    });
+  });
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- Rota GET: Buscar agendamentos existentes para uma data ---
@@ -32,30 +51,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- Rota POST: Criar um novo agendamento ---
   if (req.method === 'POST') {
      try {
-        const contentType = req.headers['content-type'] || '';
-        if (!contentType.includes('multipart/form-data')) {
-            return res.status(400).json({ error: 'Invalid content type' });
-        }
+        const { fields, files } = await parseForm(req);
 
-        const boundary = contentType.split('boundary=')[1];
-        const parts = (req.body.toString()).split(`--${boundary}`);
-        
-        let bookingData: any = {};
-        let fileBuffer: Buffer | null = null;
-        let filename: string | null = null;
-
-        for (const part of parts) {
-            if (part.includes('name="bookingData"')) {
-                const jsonPart = part.split('\r\n\r\n')[1].trim();
-                bookingData = JSON.parse(jsonPart);
-            } else if (part.includes('name="inspirationFile"')) {
-                 const content = part.split('\r\n\r\n')[1];
-                 const filenameMatch = part.match(/filename="([^"]+)"/);
-                 filename = filenameMatch ? filenameMatch[1] : 'inspiration.jpg';
-                 const trimmedContent = content.substring(0, content.lastIndexOf('\r\n'));
-                 fileBuffer = Buffer.from(trimmedContent, 'binary');
-            }
+        const bookingDataString = fields.bookingData?.[0];
+        if (!bookingDataString) {
+          return res.status(400).json({ error: 'bookingData field is missing' });
         }
+        const bookingData = JSON.parse(bookingDataString);
        
         const {
             userInfo, selectedDate, selectedTime, totalDuration, 
@@ -67,9 +69,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         let inspirationUrl = null;
-        if (fileBuffer && filename) {
-          const uniqueFilename = `${Date.now()}-${Math.round(Math.random() * 1E9)}-${filename}`;
-          const blob = await put(uniqueFilename, fileBuffer, {
+        const inspirationFile = files.inspirationFile?.[0];
+        if (inspirationFile && inspirationFile.size > 0) {
+          const fileContent = await fs.readFile(inspirationFile.filepath);
+          const uniqueFilename = `${Date.now()}-${inspirationFile.originalFilename}`;
+          const blob = await put(uniqueFilename, fileContent, {
             access: 'public',
           });
           inspirationUrl = blob.url;
@@ -90,9 +94,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
         return res.status(201).json({ message: 'Booking created successfully', inspirationUrl });
 
-      } catch (error) {
+      } catch (error: any) {
         console.error('API Error:', error);
-        return res.status(500).json({ error: 'Failed to create booking' });
+        return res.status(500).json({ error: 'Failed to create booking', details: error.message });
       }
   }
 
