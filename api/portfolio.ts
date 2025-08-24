@@ -1,15 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { sql } from '@vercel/postgres';
+import { PrismaClient } from '@prisma/client';
 import { put, del } from '@vercel/blob';
+
+const prisma = new PrismaClient();
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- GET: Listar todas as imagens do portfólio ---
   if (req.method === 'GET') {
     try {
-      const { rows } = await sql`SELECT url FROM PortfolioImages ORDER BY created_at DESC;`;
-      return res.status(200).json(rows.map(r => r.url));
+      const images = await prisma.portfolioImage.findMany({
+        orderBy: { createdAt: 'desc' }
+      });
+      return res.status(200).json(images.map(img => img.url));
     } catch (error) {
-      console.error('Database Error:', error);
+      console.error('Prisma Error:', error);
       return res.status(500).json({ error: 'Failed to fetch portfolio images' });
     }
   }
@@ -28,8 +32,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             access: 'public',
         });
 
-        // Salva a URL da imagem no banco de dados
-        await sql`INSERT INTO PortfolioImages (url) VALUES (${blob.url});`;
+        // Salva a URL da imagem no banco de dados com Prisma
+        await prisma.portfolioImage.create({
+            data: {
+                url: blob.url,
+            }
+        });
 
         return res.status(200).json(blob);
     } catch (error) {
@@ -48,8 +56,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         // Deleta do Vercel Blob
         await del(url);
-        // Deleta do banco de dados
-        await sql`DELETE FROM PortfolioImages WHERE url = ${url};`;
+        // Deleta do banco de dados com Prisma
+        await prisma.portfolioImage.delete({
+            where: {
+                url: url
+            }
+        });
 
         return res.status(200).json({ message: 'Image deleted successfully.' });
     } catch (error) {
@@ -57,7 +69,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: 'Failed to delete image.' });
     }
   }
-
 
   res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
