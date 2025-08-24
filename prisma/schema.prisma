@@ -1,0 +1,36 @@
+// Este é o seu arquivo de schema do Prisma.
+// Aprenda mais sobre ele na documentação: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URL") // Busca a URL do seu arquivo .env
+}
+
+// Modelo para os agendamentos
+model Booking {
+  id              Int      @id @default(autoincrement())
+  clientName      String   @map("client_name")
+  clientPhone     String   @map("client_phone")
+  bookingDate     DateTime @map("booking_date") @db.Date
+  startTime       String   @map("start_time")
+  durationMinutes Int      @map("duration_minutes")
+  services        String
+  totalCost       Decimal  @map("total_cost") @db.Decimal(10, 2)
+  inspirationUrl  String?  @map("inspiration_url")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("Bookings")
+}
+
+// Modelo para as imagens do portfólio
+model PortfolioImage {
+  id        Int      @id @default(autoincrement())
+  url       String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("PortfolioImages")
+}
