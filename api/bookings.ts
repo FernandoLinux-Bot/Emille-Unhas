@@ -1,9 +1,7 @@
-/// <reference types="node" />
-
+import { Buffer } from 'node:buffer';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sql } from '@vercel/postgres';
 import { put } from '@vercel/blob';
-import { parse } from 'node:querystring';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // --- Rota GET: Buscar agendamentos existentes para uma data ---
